@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel familiar</title>
+<style>
+  :root { --fondo:#f6f5f2; --tarjeta:#fff; --texto:#1d1d1b; --suave:#6b6a66; --borde:#e2e0da; --acento:#2f6f5e; --peligro:#b3261e; --ok:#2e7d32; --aviso:#b26a00; }
+  @media (prefers-color-scheme: dark) { :root { --fondo:#161615; --tarjeta:#21211f; --texto:#ecebe7; --suave:#a3a29d; --borde:#3a3936; --acento:#6fc2a8; --peligro:#f2867f; --ok:#81c784; --aviso:#ffb74d; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.45 system-ui, sans-serif; background:var(--fondo); color:var(--texto); }
+  main { max-width:760px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:.2rem 0 1rem; }
+  h2 { font-size:1.05rem; margin:0 0 .6rem; }
+  section { background:var(--tarjeta); border:1px solid var(--borde); border-radius:12px; padding:14px; margin-bottom:14px; }
+  ul { list-style:none; padding:0; margin:0; }
+  li { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:7px 0; border-top:1px solid var(--borde); }
+  li:first-child { border-top:0; }
+  .suave { color:var(--suave); font-size:.9rem; }
+  form { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  input { flex:1 1 140px; min-width:0; padding:8px 10px; border:1px solid var(--borde); border-radius:8px; background:var(--fondo); color:var(--texto); font:inherit; }
+  button { padding:8px 14px; border:0; border-radius:8px; background:var(--acento); color:#fff; font:inherit; cursor:pointer; }
+  button.borrar { background:transparent; color:var(--peligro); padding:4px 8px; }
+  .tomada { color:var(--ok); } .pendiente { color:var(--aviso); font-weight:600; }
+  .error { color:var(--peligro); }
+  #acceso[hidden], #contenido[hidden] { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="titulo">Panel familiar</h1>
+
+  <section id="acceso">
+    <h2>Entrar</h2>
+    <form id="form-token">
+      <input id="token" type="password" placeholder="Contraseña del servidor (APP_TOKEN)" required>
+      <button>Entrar</button>
+    </form>
+    <p id="error-token" class="error"></p>
+  </section>
+
+  <div id="contenido" hidden>
+    <section>
+      <h2>Hoy</h2>
+      <p id="estado" class="suave"></p>
+      <ul id="hoy"></ul>
+    </section>
+
+    <section>
+      <h2>Medicinas</h2>
+      <ul id="medicinas"></ul>
+      <form data-api="medicinas">
+        <input name="nombre" placeholder="Nombre (ej. Losartán)" required>
+        <input name="dosis" placeholder="Dosis (ej. una pastilla)">
+        <input name="horas" placeholder="Horas: 08:00,20:00" required pattern="\s*([01]\d|2[0-3]):[0-5]\d(\s*,\s*([01]\d|2[0-3]):[0-5]\d)*\s*">
+        <input name="indicaciones" placeholder="Indicaciones (ej. con comida)">
+        <button>Agregar</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Contactos</h2>
+      <p class="suave">Las personas a las que puede pedir que le marquen.</p>
+      <ul id="contactos"></ul>
+      <form data-api="contactos">
+        <input name="nombre" placeholder="Nombre" required>
+        <input name="parentesco" placeholder="Parentesco (ej. sobrino)">
+        <input name="telefono" placeholder="Teléfono (ej. 5512345678)" required>
+        <button>Agregar</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Citas</h2>
+      <ul id="citas"></ul>
+      <form data-api="citas">
+        <input name="descripcion" placeholder="Ej. Doctor del corazón" required>
+        <input name="cuando" type="datetime-local" required>
+        <button>Agregar</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Notas que guardó</h2>
+      <ul id="notas"></ul>
+    </section>
+
+    <section>
+      <h2>Historial</h2>
+      <ul id="historial"></ul>
+    </section>
+  </div>
+</main>
+<script>
+let token = "";
+try { token = localStorage.getItem("token") || ""; } catch (e) {}
+
+async function api(ruta, opciones = {}) {
+  const r = await fetch("/api/" + ruta, {
+    ...opciones,
+    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+  });
+  if (r.status === 401) { salir("Contraseña incorrecta."); throw new Error("401"); }
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function salir(msg) {
+  document.getElementById("acceso").hidden = false;
+  document.getElementById("contenido").hidden = true;
+  document.getElementById("error-token").textContent = msg || "";
+}
+
+function fila(lista, texto, detalle, borrarRuta) {
+  const li = document.createElement("li");
+  const div = document.createElement("div");
+  div.textContent = texto;
+  if (detalle) { const s = document.createElement("div"); s.className = "suave"; s.textContent = detalle; div.appendChild(s); }
+  li.appendChild(div);
+  if (borrarRuta) {
+    const b = document.createElement("button");
+    b.className = "borrar"; b.textContent = "Quitar";
+    b.onclick = async () => { if (confirm("¿Quitar?")) { await api(borrarRuta, { method: "DELETE" }); cargar(); } };
+    li.appendChild(b);
+  }
+  lista.appendChild(li);
+}
+
+function llenar(id, datos, vacio, f) {
+  const lista = document.getElementById(id);
+  lista.innerHTML = "";
+  if (!datos.length) { fila(lista, vacio); return; }
+  datos.forEach(d => f(lista, d));
+}
+
+const fecha = s => s ? new Date(s).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" }) : "";
+
+async function cargar() {
+  const [res, meds, contactos, citas, notas, hist] = await Promise.all([
+    api("resumen"), api("medicinas"), api("contactos"), api("citas"), api("notas"), api("historial?limite=60"),
+  ]);
+  document.getElementById("acceso").hidden = true;
+  document.getElementById("contenido").hidden = false;
+  document.getElementById("titulo").textContent = "Panel de " + res.nombre;
+  let estado = res.celular_ultima_vez ? "El celular se reportó por última vez: " + fecha(res.celular_ultima_vez) + "." : "El celular todavía no se ha conectado.";
+  if (!res.avisos_configurados) estado += " ⚠️ No hay Telegram/WhatsApp configurado: no llegarán avisos.";
+  document.getElementById("estado").textContent = estado;
+
+  llenar("hoy", res.medicinas_hoy, "Sin medicinas para hoy.", (l, m) => {
+    fila(l, m.hora + " · " + m.medicina, m.estado);
+    l.lastChild.querySelector(".suave").className = "suave " + (m.estado === "tomada" ? "tomada" : m.estado === "pendiente" ? "pendiente" : "");
+  });
+  llenar("medicinas", meds, "Sin medicinas.", (l, m) => fila(l, m.nombre + (m.dosis ? " – " + m.dosis : ""), "A las " + m.horas.replaceAll(",", ", ") + (m.indicaciones ? " · " + m.indicaciones : ""), "medicinas/" + m.id));
+  llenar("contactos", contactos, "Sin contactos.", (l, c) => fila(l, c.nombre + (c.parentesco ? " (" + c.parentesco + ")" : ""), c.telefono, "contactos/" + c.id));
+  llenar("citas", citas, "Sin citas próximas.", (l, c) => fila(l, c.descripcion, fecha(c.cuando), "citas/" + c.id));
+  llenar("notas", notas, "Sin notas.", (l, n) => fila(l, n.texto, fecha(n.creada), "notas/" + n.id));
+  llenar("historial", hist, "Sin actividad.", (l, h) => fila(l, h.detalle, fecha(h.momento) + " · " + h.tipo));
+}
+
+document.getElementById("form-token").onsubmit = e => {
+  e.preventDefault();
+  token = document.getElementById("token").value.trim();
+  try { localStorage.setItem("token", token); } catch (err) {}
+  cargar().catch(() => {});
+};
+
+document.querySelectorAll("form[data-api]").forEach(f => f.onsubmit = async e => {
+  e.preventDefault();
+  const datos = Object.fromEntries(new FormData(f));
+  try { await api(f.dataset.api, { method: "POST", body: JSON.stringify(datos) }); f.reset(); cargar(); }
+  catch (err) { if (err.message !== "401") alert("No se pudo guardar: " + err.message); }
+});
+
+if (token) cargar().catch(() => {});
+setInterval(() => { if (token && !document.getElementById("contenido").hidden) cargar().catch(() => {}); }, 60000);
+</script>
+</body>
+</html>
